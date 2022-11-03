@@ -1,0 +1,330 @@
+---
+title: "College Ranking Analysis"
+output: github_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## College Rankings
+
+The quality and cost of college in the US is a pretty widely discussed topic. Many college rankings systems exist that attempt to answer the question of which colleges are 'the best' in order to give parents and students information to make an informed decision about which colleges to attend.
+
+However, each of these ranking systems mixes inputs - like the average income SAT scores of students - with outputs, such as the percent employed six months after graduation. Thus they are 'scoring' colleges without truly modelling their impact.
+
+This modelling project is an attempt to measure the *impact* of attending a particular college for students. That is, all things being equal, how much impact does attending one college over another have on outcomes for a student with similar characteristics?
+
+## Starting Point - Getting the Data
+
+The ability to do this type of analysis has been greatly enhanced in recent years with the availability of the [College Scorecard](https://collegescorecard.ed.gov/) which contains comprehensive institution-level information on colleges in the United States. The college scorecard data set used in this analysis is the most recently released annual data from May 2022.
+
+```{r input, message=FALSE,echo=FALSE}
+library(performance)
+library(tidyverse)
+library(janitor)
+library(readr)
+
+CollegeScorecard <- read_csv("CollegeScorecard.csv")
+
+```
+
+## Starting Point for this Analysis
+
+The basic idea behind this research is this: some amount of the relative success of college graduates is determined by factors inherent to those individuals, while some can be attributed to the impact of which college they chose to attend. Because the data we have is at the institution-level, we cannot actually model on individuals - but we do have student population characteristics at the institutional level.
+
+The CollegeScorecard file we imported has 6662 observations of 2989 variables - a lot to work with. To start with, we're going to visualize some of this data, figure out what filters we need to apply, and then build a very simple first model.
+
+### Identifying a Dependent Variable
+
+First, let's look at potential dependent variables for our model: long-term earnings. The data contains a number of post-graduation earnings measures, but the longest-term ones are the median and mean earnings for students 10 years post-entry. Note that in both cases these are earnings for graduates who are 'working, not enrolled' so would presumably not include students enrolled in a graduate program at this time - more on that later.
+
+```{r dependent}
+plot(CollegeScorecard$MD_EARN_WNE_P10)
+plot(CollegeScorecard$MN_EARN_WNE_P10)
+```
+
+The first thing to notice here is that it looks like we have almost two different datasets. There are also some schools with very, very high long-term earnings: these are likely schools that only offer high-earning graduate programs like standalone medical schools. We want to filter to four-year degree granting institutions.
+
+The data dictionary contains a variable called degrees_awarded.predominant with the following characteristics: 
+
+ 0 Not classified
+ 1 Predominantly certificate-degree granting
+ 2 Predominantly associate's-degree granting
+ 3 Predominantly bachelor's-degree granting
+ 4 Entirely graduate-degree granting
+
+Let's add a filter for degrees_awarded.predominant = 3 and see what difference it makes.
+
+```{r filter}
+filtered_scorecard <- CollegeScorecard %>% filter(PREDDEG == 3)
+plot(filtered_scorecard$MD_EARN_WNE_P10)
+plot(filtered_scorecard$MN_EARN_WNE_P10)
+```
+
+That looks much better. To add a qualitative check, let's see what the top five schools with the highest mean earnings are in this data.
+
+```{r top}
+filtered_scorecard %>% slice_min(order_by=MN_EARN_WNE_P10,n=5) %>%
+  select(INSTNM)
+
+filtered_scorecard %>% slice_min(order_by=MD_EARN_WNE_P10,n=5) %>%
+  select(INSTNM)
+```
+
+If we go by mean earnings the schools with highest earnings 10 years post-graduation are: Texas Tech Health Sciences Center, Cornell, University of Chicago, Carnegie Mellon, and Tufts. By median its Penn, Babson, Bentley, Harvey Mudd, and MIT. The only school that looks like it maybe should not belong on this list is Texas Tech Health Sciences. 
+
+There are a few other variables we can use to make sure we're looking at the right list of schools. Let's look are our remaining ~2000 colleges using the Carnegie Classification Profile:
+
+```{r}
+filtered_scorecard %>% group_by(CCUGPROF) %>% select(INSTNM) %>% summarise(count=n())
+```
+
+We still have a few schools that are either graduate-only or don't have a classification. Let's remove them.
+
+```{r}
+filtered_scorecard <- filtered_scorecard %>% filter(CCUGPROF != 0,CCUGPROF != -2)
+```
+
+Now let's think about what we might use to build a basic model. Let's start with a simple linear model with just a couple of features. Thinking about a students background and their academic credentials, let's see how much variation in 10 year post-graduationg income can be attributed to houshold income, first generation status, and average SAT scores.
+
+```{r}
+# Clear out all null values, and then make sure all features we're going to use are coded as numeric
+first_model_scorecard <- filtered_scorecard %>%
+  select(UNITID,INSTNM,SAT_AVG,MD_FAMINC,FIRST_GEN,MN_EARN_WNE_P10,MD_EARN_WNE_P10) %>%
+  filter(SAT_AVG != 'NULL',MD_FAMINC != 'NULL',FIRST_GEN != 'PrivacySuppressed') %>%
+  filter(MN_EARN_WNE_P10 != 'NULL',MN_EARN_WNE_P10 != 'PrivacySuppressed') %>%
+  filter(MD_EARN_WNE_P10 != 'NULL',MN_EARN_WNE_P10 != 'PrivacySuppressed') %>%
+  mutate_at(vars(-("INSTNM")), as.numeric)
+
+#define model with only a few predictors
+fm_1 <- lm(MN_EARN_WNE_P10 ~ SAT_AVG + MD_FAMINC + FIRST_GEN,data=first_model_scorecard)
+fm_2 <- lm(MD_EARN_WNE_P10 ~ SAT_AVG + MD_FAMINC + FIRST_GEN,data=first_model_scorecard)
+
+```
+
+With only these three features - average SAT, median family income, and percent of first generation students, the R^2 for both models is about .58, indicating that ~58% of the variation in 10 year post entry income for colleges can be explained by these three variables alone. This seems like a promising starting point for further digging.
+
+For one final step, let's run some basic model diagnostics. Base R has built-in functionality for this, but I much prefer the performance package:
+
+```{r}
+library(performance)
+
+model_performance(fm_1)
+check_model(fm_1)
+
+```
+
+As we would expect, the diagnostics indicate that we have a lot more to do. But it's a good start. As a next step, lets add some additional variables to the model - focusing on characteristics of students that are independent of the university that they attend.
+
+```{r}
+# Follow the same steps as previously, but keep additional columns that we want to use for the model
+second_model_scorecard <- filtered_scorecard %>%
+  select(UNITID,
+        INSTNM,          # Institution Name
+        SAT_AVG,         # Average SAT Score
+#        MN_EARN_WNE_P10, # Mean Income 10 Years After Graduating. We are modelling based on median not mean
+        SATVRMID,        # SAT Midpoint Critical Reading
+        SATMTMID,        # SAT Midpoint Math
+#        SATWRMID,        # SAT Midpoint Writing / Excluded because most colleges do not report this
+        ACTCMMID,        # Cumulative ACT Midpoint
+        FAMINC,          # Family Income
+        MD_FAMINC,       # Median Family Income
+        FIRST_GEN,       # Percent First Generation Students
+        FEMALE,          # Percent Female
+        MD_EARN_WNE_P10, # Median Income 10 Years After Grad
+        PCIP01,          # Percent enrolled in different degree programs
+        PCIP03,
+        PCIP04,
+        PCIP05,
+        PCIP09,
+        PCIP10,
+        PCIP11,
+        PCIP12,
+        PCIP13,
+        PCIP14,
+        PCIP15,
+        PCIP16,
+        PCIP19,
+        PCIP22,
+        PCIP23,
+        PCIP24,
+        PCIP25,
+        PCIP26,
+        PCIP27,
+        PCIP29,
+        PCIP30,
+        PCIP31,
+        PCIP38,
+        PCIP39,
+        PCIP40,
+        PCIP41,
+        PCIP42,
+        PCIP43,
+        PCIP44,
+        PCIP45,
+        PCIP46,
+        PCIP47,
+        PCIP48,
+        PCIP49,
+        PCIP50,
+        PCIP51,
+        PCIP52,
+        PCIP54,
+        UGDS_WHITE,
+        UGDS_BLACK,
+        UGDS_HISP,
+        UGDS_ASIAN,
+        UGDS_AIAN,
+        UGDS_NHPI,
+        UGDS_2MOR,
+        UGDS_NRA,
+        UGDS_UNKN,
+        AGE_ENTRY,
+        AGEGE24,
+        DEPENDENT,
+#         VETERAN,       # Wanted to include % of veterans but most colleges do not report this
+        PCT_WHITE,
+        PCT_BLACK,
+        PCT_ASIAN,
+        PCT_HISPANIC,
+        PCT_BA,
+        PCT_GRAD_PROF,
+        PCT_BORN_US,
+        MEDIAN_HH_INC,
+        POVERTY_RATE,
+        UNEMP_RATE) %>%
+  filter(SAT_AVG != 'NULL',MD_FAMINC != 'NULL',FIRST_GEN != 'PrivacySuppressed') %>%
+#  filter(MN_EARN_WNE_P10 != 'NULL',MN_EARN_WNE_P10 != 'PrivacySuppressed') %>%
+  filter(MD_EARN_WNE_P10 != 'NULL',MD_EARN_WNE_P10 != 'PrivacySuppressed') %>%
+  mutate_at(vars(-("INSTNM")), as.numeric) 
+
+summary(second_model_scorecard)
+
+```
+
+Taking a look at the data in each column, we exclude a few variables - median SAT writing score and veteran status that most colleges don't report. It also appears that a number of colleges don't have % female, but most of them are actually all-female colleges. Those will have to be manually corrected as follows. We will then drop remaining rows with missing values.
+
+```{r}
+second_model_scorecard <- second_model_scorecard %>%
+  mutate(FEMALE = ifelse(is.na(FEMALE),
+                      case_when(UNITID == 174792 ~ 0,
+                                UNITID == 217961 ~ NA_real_,
+                                TRUE ~ 1),FEMALE)) %>%
+  drop_na()
+
+```
+Let's now split data into testing and training datasets in order to test the model accuracy, and then re-run the model on the test data using all the variables
+
+```{r}
+#make this example reproducible
+set.seed(1)
+
+#create ID column
+second_model_scorecard$id <- 1:nrow(second_model_scorecard)
+
+#use 70% of dataset as training set and 30% as test set 
+train <- second_model_scorecard %>% dplyr::sample_frac(0.75)
+test  <- dplyr::anti_join(second_model_scorecard, train, by = 'id')
+
+#define model with all predictors
+all <- lm(MD_EARN_WNE_P10 ~ . - UNITID - INSTNM, data=train)
+```
+
+Now, let's check the performance of this second model:
+
+```{r}
+# library(performance)
+
+model_performance(all)
+check_model(all)
+
+```
+
+This is an incredible result, with almost all the variation in 10 year post graduation income predicted by factors not associated with the college.
+
+```{r}
+#perform backward stepwise regression
+backward <- step(all, direction='backward', scope=formula(all), trace=0)
+
+#view results of backward stepwise regression
+model_performance(backward)
+check_model(backward)
+```
+
+Now, the idea is that whatever remains should tell us which colleges benefit students the most independent of other factors. The colleges that have the greatest impact on income should be those with the greatest difference between the actual value and predicted value.
+
+```{r}
+# Plot actual versus predicted
+plot(predict(backward),                                # Draw plot using Base R
+     train$MD_EARN_WNE_P10,
+     xlab = "Predicted Values",
+     ylab = "Observed Values")
+abline(a = 0,                                        # Add straight line
+       b = 1,
+       col = "red",
+       lwd = 2)
+
+# New DataSet Showing Predicted And Actual
+modeled_results <- cbind(train,predict(backward)) %>%
+  rename("modeled_salary" = "predict(backward)") %>%
+  mutate(value_add =MD_EARN_WNE_P10 - modeled_salary) %>%
+  select(UNITID,INSTNM,MD_EARN_WNE_P10,modeled_salary,value_add)
+
+# Top Ten Colleges with highest 'Value Add'
+modeled_results %>% filter(rank(desc(value_add))<=10)
+```
+
+Some of the top 10 schools with the biggest 'value add' make sense - Columbia, Georgetown, MIT. Others are specialty schools that focus on a specific type of degree program (pharmacy). It may be better to remove these schools from the analysis as outliers as they don't represent 'normal' colleges. 
+
+It's also possible that a different type of model might do a better job in these types of cases. Gradient boosted decision trees tend to consistently win modelling competitions (and we use them often in my team in my actual job) so let's see if we get a different result by using the XGBoost model on the data.
+
+
+```{r}
+library(xgboost)
+library(caret)
+
+#make this example reproducible
+set.seed(0)
+
+#split into training (80%) and testing set (20%)
+parts = createDataPartition(second_model_scorecard$UNITID, p = .8, list = F)
+train = second_model_scorecard[parts, ]
+test = second_model_scorecard[-parts, ]
+
+#define predictor and response variables in training set
+train_x = data.matrix(train[, c(-8,-1,-2)])
+train_y = train$MD_EARN_WNE_P10
+
+#define predictor and response variables in testing set
+test_x = data.matrix(test[, c(-8,-1,-2)])
+test_y = test$MD_EARN_WNE_P10
+
+#define final training and testing sets
+xgb_train = xgb.DMatrix(data = train_x, label = train_y)
+xgb_test = xgb.DMatrix(data = test_x, label = test_y)
+```
+
+Now let's run it and see what happens
+
+```{r}
+#define watchlist
+watchlist = list(train=xgb_train, test=xgb_test)
+
+#fit XGBoost model and display training and testing data at each round
+model = xgb.train(data = xgb_train, max.depth = 3, watchlist=watchlist, nrounds = 70)
+```
+
+```{r}
+
+#define final model
+final = xgboost(data = xgb_train, max.depth = 3, nrounds = 23, verbose = 0)
+
+#use model to make predictions on test data
+pred_y = predict(final, xgb_test)
+
+mean((test_y - pred_y)^2) #mse
+caret::MAE(test_y, pred_y) #mae
+caret::RMSE(test_y, pred_y) #rmse
+
+```
