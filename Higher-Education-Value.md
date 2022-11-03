@@ -767,6 +767,7 @@ final = xgboost(data = xgb_train, max.depth = 3, nrounds = 23, verbose = 0)
 
 #use model to make predictions on test data
 pred_y = predict(final, xgb_test)
+pred_train = predict(final,xgb_train)
 
 mean((test_y - pred_y)^2) #mse
 ```
@@ -784,3 +785,62 @@ caret::RMSE(test_y, pred_y) #rmse
 ```
 
     ## [1] 667.6963
+
+Now lets see which schools get the biggest differences between predicted
+and actual salaries
+
+``` r
+scored_test <- test
+scored_test$pred_income <- pred_y
+
+scored_test <- scored_test %>%
+  mutate(value_add = MD_EARN_WNE_P10 - pred_y)
+
+# scored_test %>% filter(rank(desc(value_add))<=10)
+
+scored_train <- train
+scored_train$pred_income <- pred_train
+
+scored_train <- scored_train %>%
+  mutate(value_add = MD_EARN_WNE_P10 - pred_train)
+
+# scored_train %>% filter(rank(desc(value_add))<=10)
+
+# Combine test and training sets
+
+total_scored <- rbind(scored_test,scored_train)
+
+total_scored %>% select(UNITID,INSTNM,value_add) %>% filter(rank(desc(value_add))<=10) %>% arrange(desc(value_add))
+```
+
+    ## # A tibble: 10 × 3
+    ##    UNITID INSTNM                                                  value_add
+    ##     <dbl> <chr>                                                       <dbl>
+    ##  1 166683 Massachusetts Institute of Technology                       5012.
+    ##  2 120883 University of the Pacific                                   2277.
+    ##  3 179265 University of Health Sciences and Pharmacy in St. Louis     2098.
+    ##  4 110680 University of California-San Diego                          1968.
+    ##  5 213543 Lehigh University                                           1663.
+    ##  6 139755 Georgia Institute of Technology-Main Campus                 1563.
+    ##  7 191241 Fordham University                                          1426.
+    ##  8 215770 Saint Joseph's University                                   1309.
+    ##  9 122409 San Diego State University                                  1257.
+    ## 10 179043 Rockhurst University                                        1152.
+
+``` r
+# Plot actual versus predicted
+plot(total_scored$pred_income,                                # Draw plot using Base R
+     total_scored$MD_EARN_WNE_P10,
+     xlab = "Predicted Values",
+     ylab = "Observed Values")
+abline(a = 0,                                        # Add straight line
+       b = 1,
+       col = "red",
+       lwd = 2)
+```
+
+![](Higher-Education-Value_files/figure-gfm/unnamed-chunk-14-1.png)<!-- -->
+
+The final result makes sense - attending MIT causes the most significant
+value add of any college - but I’m surprised that the model estimates
+its only worth about \$5k in annual income 10 years post-graduation.

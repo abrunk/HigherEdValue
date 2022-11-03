@@ -322,9 +322,38 @@ final = xgboost(data = xgb_train, max.depth = 3, nrounds = 23, verbose = 0)
 
 #use model to make predictions on test data
 pred_y = predict(final, xgb_test)
+pred_train = predict(final,xgb_train)
 
 mean((test_y - pred_y)^2) #mse
 caret::MAE(test_y, pred_y) #mae
 caret::RMSE(test_y, pred_y) #rmse
 
 ```
+
+Now lets see which schools get the biggest differences between predicted and actual salaries
+
+```{r}
+scored_test <- test
+scored_test$pred_income <- pred_y
+
+scored_test <- scored_test %>%
+  mutate(value_add = MD_EARN_WNE_P10 - pred_y)
+
+# scored_test %>% filter(rank(desc(value_add))<=10)
+
+scored_train <- train
+scored_train$pred_income <- pred_train
+
+scored_train <- scored_train %>%
+  mutate(value_add = MD_EARN_WNE_P10 - pred_train)
+
+# scored_train %>% filter(rank(desc(value_add))<=10)
+
+# Combine test and training sets
+
+total_scored <- rbind(scored_test,scored_train)
+
+total_scored %>% select(UNITID,INSTNM,value_add) %>% filter(rank(desc(value_add))<=10) %>% arrange(desc(value_add))
+```
+
+The final result makes sense - attending MIT causes the most significant value add of any college - but I'm surprised that the model estimates its only worth about $5k in annual income 10 years post-graduation.
