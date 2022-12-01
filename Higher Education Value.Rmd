@@ -39,9 +39,9 @@ The CollegeScorecard file we imported has 6662 observations of 2989 variables - 
 
 First, let's look at potential dependent variables for our model: long-term earnings. The data contains a number of post-graduation earnings measures, but the longest-term ones are the median and mean earnings for students 10 years post-entry. Note that in both cases these are earnings for graduates who are 'working, not enrolled' so would presumably not include students enrolled in a graduate program at this time - more on that later.
 
-```{r dependent}
-plot(CollegeScorecard$MD_EARN_WNE_P10)
-plot(CollegeScorecard$MN_EARN_WNE_P10)
+```{r dependent, warning=FALSE}
+plot(as.numeric(CollegeScorecard$MD_EARN_WNE_P10))
+plot(as.numeric(CollegeScorecard$MN_EARN_WNE_P10))
 ```
 
 The first thing to notice here is that it looks like we have almost two different datasets. There are also some schools with very, very high long-term earnings: these are likely schools that only offer high-earning graduate programs like standalone medical schools. We want to filter to four-year degree granting institutions.
@@ -56,7 +56,7 @@ The data dictionary contains a variable called degrees_awarded.predominant with 
 
 Let's add a filter for degrees_awarded.predominant = 3 and see what difference it makes.
 
-```{r filter}
+```{r filter, warning=FALSE}
 filtered_scorecard <- CollegeScorecard %>% filter(PREDDEG == 3)
 plot(filtered_scorecard$MD_EARN_WNE_P10)
 plot(filtered_scorecard$MN_EARN_WNE_P10)
@@ -64,7 +64,7 @@ plot(filtered_scorecard$MN_EARN_WNE_P10)
 
 That looks much better. To add a qualitative check, let's see what the top five schools with the highest mean earnings are in this data.
 
-```{r top}
+```{r top, warning=FALSE}
 filtered_scorecard %>% slice_min(order_by=MN_EARN_WNE_P10,n=5) %>%
   select(INSTNM)
 
@@ -76,19 +76,32 @@ If we go by mean earnings the schools with highest earnings 10 years post-gradua
 
 There are a few other variables we can use to make sure we're looking at the right list of schools. Let's look are our remaining ~2000 colleges using the Carnegie Classification Profile:
 
-```{r}
+```{r, warning=FALSE}
 filtered_scorecard %>% group_by(CCUGPROF) %>% select(INSTNM) %>% summarise(count=n())
 ```
 
 We still have a few schools that are either graduate-only or don't have a classification. Let's remove them.
 
-```{r}
+```{r, warning=FALSE}
 filtered_scorecard <- filtered_scorecard %>% filter(CCUGPROF != 0,CCUGPROF != -2)
 ```
 
-Now let's think about what we might use to build a basic model. Let's start with a simple linear model with just a couple of features. Thinking about a students background and their academic credentials, let's see how much variation in 10 year post-graduationg income can be attributed to houshold income, first generation status, and average SAT scores.
+Now that we've done that, let's see if we can generate a slightly cleaner plot of our data. Our two potential dependent variables are mean and median income ten years post-graduation, so let's plot them. We'll also use ggplot2 this time to get a better looking chart than the ones available in base R.
 
 ```{r}
+ggplot(filtered_scorecard,aes(y=as.numeric(MN_EARN_WNE_P10),x=as.numeric(MD_EARN_WNE_P10))) +
+  geom_point() +
+  scale_y_continuous(labels=scales::dollar_format(),breaks=c(25000,50000,75000,100000,125000,150000,175000)) +
+  scale_x_continuous(labels=scales::dollar_format(),breaks=c(25000,50000,75000,100000,125000,150000,175000)) +
+  xlab("Median Income 10 Years Post Graduation") + 
+  ylab("Mean Income 10 Years Post Graduation")
+```
+
+Two principle takeaways from this: first, we got a warning that about ~200 schools are missing income values, so we need to remove those from the dataset. Second, for universities with the highest income post graduation, the averages can be quite a bit higher than the medians. Based on this, I think it's better to go with median income as our dependent variable. But we'll try it with both for the first model.
+
+Now let's think about what we might use to build a basic model. Let's start with a simple linear model with just a couple of features. Thinking about a students background and their academic credentials, let's see how much variation in 10 year post-graduation income can be attributed to household income, first generation status, and average SAT scores.
+
+```{r, warning=FALSE}
 # Clear out all null values, and then make sure all features we're going to use are coded as numeric
 first_model_scorecard <- filtered_scorecard %>%
   select(UNITID,INSTNM,SAT_AVG,MD_FAMINC,FIRST_GEN,MN_EARN_WNE_P10,MD_EARN_WNE_P10) %>%
@@ -105,19 +118,39 @@ fm_2 <- lm(MD_EARN_WNE_P10 ~ SAT_AVG + MD_FAMINC + FIRST_GEN,data=first_model_sc
 
 With only these three features - average SAT, median family income, and percent of first generation students, the R^2 for both models is about .58, indicating that ~58% of the variation in 10 year post entry income for colleges can be explained by these three variables alone. This seems like a promising starting point for further digging.
 
-For one final step, let's run some basic model diagnostics. Base R has built-in functionality for this, but I much prefer the performance package:
+For one final step, let's run some basic model diagnostics. Base R has built-in functionality for this, but I much prefer the performance package. We'll run it first for the model based on mean income.
 
-```{r}
+```{r, warning=FALSE}
 library(performance)
 
 model_performance(fm_1)
-check_model(fm_1)
+check_model(fm_1,dot_size=1,line_size = .5,show_dots='false',
+            check=c("pp_check","linearity","qq","outliers"))
 
 ```
 
-As we would expect, the diagnostics indicate that we have a lot more to do. But it's a good start. As a next step, lets add some additional variables to the model - focusing on characteristics of students that are independent of the university that they attend.
+Now, let's see how the model does for the same features and median income as the dependent variable:
 
-```{r}
+```{r, warning=FALSE}
+library(performance)
+
+model_performance(fm_2)
+check_model(fm_2,dot_size=1,line_size = .5,show_dots='false',
+            check=c("pp_check","linearity","qq","outliers"))
+
+```
+
+As we would expect, the diagnostics indicate that we have a lot more to do. 
+
+It also doesn't seem like there's a ton of difference between the two dependent variables - so we'll stick with my original intuition and use median income going forward.
+
+As a next step, lets add some additional variables to the model - focusing on characteristics of students that are independent of the university that they attend. This includes demographic information including race/ethnicity, family income, standardized test information, dependent status, and the demographic profile of students' home zip codes.
+
+<b>An important note: I am making no claims here about 'why' any of the above demographic variables are likely to impact the income of college graduate 10 years post-graduation. I am merely attempting to gather all the information I can about the profile of students at each university in order to account for those differences when comparing universities to each other. </b>
+
+Additionally, we will include variables that indicate the percent of students choosing distinct types of majors at each university. We know that certain majors are likely to result in higher incomes independent of which university students attend, so we want to account for the fact that the 'mix' of majors at some universities is very different than others. We don't want having more engineering majors to drive how much impact a college has on students' income.
+
+```{r, warning=FALSE}
 # Follow the same steps as previously, but keep additional columns that we want to use for the model
 second_model_scorecard <- filtered_scorecard %>%
   select(UNITID,
@@ -171,7 +204,7 @@ second_model_scorecard <- filtered_scorecard %>%
         PCIP51,
         PCIP52,
         PCIP54,
-        UGDS_WHITE,
+        UGDS_WHITE, # Demographic characteristics of Undergraduate student pop
         UGDS_BLACK,
         UGDS_HISP,
         UGDS_ASIAN,
@@ -184,7 +217,7 @@ second_model_scorecard <- filtered_scorecard %>%
         AGEGE24,
         DEPENDENT,
 #         VETERAN,       # Wanted to include % of veterans but most colleges do not report this
-        PCT_WHITE,
+        PCT_WHITE, # Demographic characteristics of home zip codes of student pop
         PCT_BLACK,
         PCT_ASIAN,
         PCT_HISPANIC,
@@ -199,13 +232,13 @@ second_model_scorecard <- filtered_scorecard %>%
   filter(MD_EARN_WNE_P10 != 'NULL',MD_EARN_WNE_P10 != 'PrivacySuppressed') %>%
   mutate_at(vars(-("INSTNM")), as.numeric) 
 
-summary(second_model_scorecard)
+# summary(second_model_scorecard)
 
 ```
 
 Taking a look at the data in each column, we exclude a few variables - median SAT writing score and veteran status that most colleges don't report. It also appears that a number of colleges don't have % female, but most of them are actually all-female colleges. Those will have to be manually corrected as follows. We will then drop remaining rows with missing values.
 
-```{r}
+```{r, warning=FALSE}
 second_model_scorecard <- second_model_scorecard %>%
   mutate(FEMALE = ifelse(is.na(FEMALE),
                       case_when(UNITID == 174792 ~ 0,
@@ -216,7 +249,7 @@ second_model_scorecard <- second_model_scorecard %>%
 ```
 Let's now split data into testing and training datasets in order to test the model accuracy, and then re-run the model on the test data using all the variables
 
-```{r}
+```{r, warning=FALSE}
 #make this example reproducible
 set.seed(1)
 
@@ -228,33 +261,36 @@ train <- second_model_scorecard %>% dplyr::sample_frac(0.75)
 test  <- dplyr::anti_join(second_model_scorecard, train, by = 'id')
 
 #define model with all predictors
-all <- lm(MD_EARN_WNE_P10 ~ . - UNITID - INSTNM, data=train)
+all <- lm(MD_EARN_WNE_P10 ~ . - UNITID - INSTNM - id, data=train)
 ```
 
 Now, let's check the performance of this second model:
 
-```{r}
+```{r, warning=FALSE}
 # library(performance)
 
 model_performance(all)
-check_model(all)
+check_model(all,dot_size=1,line_size = .5,show_dots='false',
+            check=c("pp_check","linearity","qq","outliers"))
+
 
 ```
 
-This is an incredible result, with almost all the variation in 10 year post graduation income predicted by factors not associated with the college.
+With these additional variables included, the predictive power of our model goes from .58 to .84. However, it's likely we have included too many features, so we'll try a backwards stepwise regression to focus on the most important ones.
 
-```{r}
+```{r, warning=FALSE}
 #perform backward stepwise regression
 backward <- step(all, direction='backward', scope=formula(all), trace=0)
 
 #view results of backward stepwise regression
 model_performance(backward)
-check_model(backward)
+check_model(backward,dot_size=1,line_size = .5,show_dots='false',
+            check=c("pp_check","linearity","qq","outliers"))
 ```
 
 Now, the idea is that whatever remains should tell us which colleges benefit students the most independent of other factors. The colleges that have the greatest impact on income should be those with the greatest difference between the actual value and predicted value.
 
-```{r}
+```{r, warning=FALSE}
 # Plot actual versus predicted
 plot(predict(backward),                                # Draw plot using Base R
      train$MD_EARN_WNE_P10,
@@ -269,18 +305,21 @@ abline(a = 0,                                        # Add straight line
 modeled_results <- cbind(train,predict(backward)) %>%
   rename("modeled_salary" = "predict(backward)") %>%
   mutate(value_add =MD_EARN_WNE_P10 - modeled_salary) %>%
-  select(UNITID,INSTNM,MD_EARN_WNE_P10,modeled_salary,value_add)
+  select(INSTNM,MD_EARN_WNE_P10,modeled_salary,value_add)
 
 # Top Ten Colleges with highest 'Value Add'
-modeled_results %>% filter(rank(desc(value_add))<=10)
+modeled_results %>%
+  mutate(INSTNM = str_trunc(INSTNM,30)) %>%
+  filter(rank(desc(value_add))<=10) %>%
+  arrange(desc(value_add))
 ```
 
-Some of the top 10 schools with the biggest 'value add' make sense - Columbia, Georgetown, MIT. Others are specialty schools that focus on a specific type of degree program (pharmacy). It may be better to remove these schools from the analysis as outliers as they don't represent 'normal' colleges. 
+Some of the top 10 schools with the biggest 'value add' make sense - Georgetown, MIT. Others are specialty schools that focus on a specific type of degree program (pharmacy). It may be better to remove these schools from the analysis as outliers as they don't represent 'normal' colleges. 
 
-It's also possible that a different type of model might do a better job in these types of cases. Gradient boosted decision trees tend to consistently win modelling competitions (and we use them often in my team in my actual job) so let's see if we get a different result by using the XGBoost model on the data.
+It's also possible that a non-parametric model might do a better job in these types of cases. Gradient boosted decision trees tend to consistently win modelling competitions (and we use them often in my team in my actual job) so let's see if we get a different result by using the XGBoost model on the data.
 
 
-```{r}
+```{r, warning=FALSE}
 library(xgboost)
 library(caret)
 
@@ -293,11 +332,11 @@ train = second_model_scorecard[parts, ]
 test = second_model_scorecard[-parts, ]
 
 #define predictor and response variables in training set
-train_x = data.matrix(train[, c(-8,-1,-2)])
+train_x = data.matrix(train[, c(-11,-1,-2,-72)])
 train_y = train$MD_EARN_WNE_P10
 
 #define predictor and response variables in testing set
-test_x = data.matrix(test[, c(-8,-1,-2)])
+test_x = data.matrix(test[, c(-11,-1,-2,-72)])
 test_y = test$MD_EARN_WNE_P10
 
 #define final training and testing sets
@@ -307,7 +346,7 @@ xgb_test = xgb.DMatrix(data = test_x, label = test_y)
 
 Now let's run it and see what happens
 
-```{r}
+```{r, warning=FALSE}
 #define watchlist
 watchlist = list(train=xgb_train, test=xgb_test)
 
@@ -315,7 +354,7 @@ watchlist = list(train=xgb_train, test=xgb_test)
 model = xgb.train(data = xgb_train, max.depth = 3, watchlist=watchlist, nrounds = 70)
 ```
 
-```{r}
+```{r, warning=FALSE}
 
 #define final model
 final = xgboost(data = xgb_train, max.depth = 3, nrounds = 23, verbose = 0)
@@ -325,14 +364,14 @@ pred_y = predict(final, xgb_test)
 pred_train = predict(final,xgb_train)
 
 mean((test_y - pred_y)^2) #mse
-caret::MAE(test_y, pred_y) #mae
-caret::RMSE(test_y, pred_y) #rmse
+caret::MAE(train_y, pred_train) #mae
+caret::RMSE(train_y, pred_train) #rmse
 
 ```
 
-Now lets see which schools get the biggest differences between predicted and actual salaries
+This result indicates a root mean squared error of about 3168 dollars on the training data - much better than the linear model which had an RMSE of about 4700 dollars. Now lets see which schools get the biggest differences between predicted and actual salaries.
 
-```{r}
+```{r, warning=FALSE}
 scored_test <- test
 scored_test$pred_income <- pred_y
 
@@ -354,6 +393,20 @@ scored_train <- scored_train %>%
 total_scored <- rbind(scored_test,scored_train)
 
 total_scored %>% select(UNITID,INSTNM,value_add) %>% filter(rank(desc(value_add))<=10) %>% arrange(desc(value_add))
+
+total_scored %>% select(UNITID,INSTNM,value_add) %>% filter(rank(value_add)<=10) %>% arrange(value_add)
+
+# Plot actual versus predicted
+plot(total_scored$pred_income,                                # Draw plot using Base R
+     total_scored$MD_EARN_WNE_P10,
+     xlab = "Predicted Values",
+     ylab = "Observed Values")
+abline(a = 0,                                        # Add straight line
+       b = 1,
+       col = "red",
+       lwd = 2)
 ```
 
-The final result makes sense - attending MIT causes the most significant value add of any college - but I'm surprised that the model estimates its only worth about $5k in annual income 10 years post-graduation.
+The final result makes sense - attending MIT causes the most significant value add of any college - about $21k in annual income 10 years post-graduation. The list of schools which generate the highest negative value add doesn't seem to have any clear pattern. 
+
+<b>Note: This remains a work in progress. A few additional steps I am planning to add are some amount of cross-validation on the training data and continued review of the available features to see if there any other ones I may have left out.</b>

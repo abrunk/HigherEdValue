@@ -53,18 +53,14 @@ presumably not include students enrolled in a graduate program at this
 time - more on that later.
 
 ``` r
-plot(CollegeScorecard$MD_EARN_WNE_P10)
+plot(as.numeric(CollegeScorecard$MD_EARN_WNE_P10))
 ```
-
-    ## Warning in xy.coords(x, y, xlabel, ylabel, log): NAs introduced by coercion
 
 ![](Higher-Education-Value_files/figure-gfm/dependent-1.png)<!-- -->
 
 ``` r
-plot(CollegeScorecard$MN_EARN_WNE_P10)
+plot(as.numeric(CollegeScorecard$MN_EARN_WNE_P10))
 ```
-
-    ## Warning in xy.coords(x, y, xlabel, ylabel, log): NAs introduced by coercion
 
 ![](Higher-Education-Value_files/figure-gfm/dependent-2.png)<!-- -->
 
@@ -89,15 +85,11 @@ filtered_scorecard <- CollegeScorecard %>% filter(PREDDEG == 3)
 plot(filtered_scorecard$MD_EARN_WNE_P10)
 ```
 
-    ## Warning in xy.coords(x, y, xlabel, ylabel, log): NAs introduced by coercion
-
 ![](Higher-Education-Value_files/figure-gfm/filter-1.png)<!-- -->
 
 ``` r
 plot(filtered_scorecard$MN_EARN_WNE_P10)
 ```
-
-    ## Warning in xy.coords(x, y, xlabel, ylabel, log): NAs introduced by coercion
 
 ![](Higher-Education-Value_files/figure-gfm/filter-2.png)<!-- -->
 
@@ -172,11 +164,41 @@ a classification. Let’s remove them.
 filtered_scorecard <- filtered_scorecard %>% filter(CCUGPROF != 0,CCUGPROF != -2)
 ```
 
+Now that we’ve done that, let’s see if we can generate a slightly
+cleaner plot of our data. Our two potential dependent variables are mean
+and median income ten years post-graduation, so let’s plot them. We’ll
+also use ggplot2 this time to get a better looking chart than the ones
+available in base R.
+
+``` r
+ggplot(filtered_scorecard,aes(y=as.numeric(MN_EARN_WNE_P10),x=as.numeric(MD_EARN_WNE_P10))) +
+  geom_point() +
+  scale_y_continuous(labels=scales::dollar_format(),breaks=c(25000,50000,75000,100000,125000,150000,175000)) +
+  scale_x_continuous(labels=scales::dollar_format(),breaks=c(25000,50000,75000,100000,125000,150000,175000)) +
+  xlab("Median Income 10 Years Post Graduation") + 
+  ylab("Mean Income 10 Years Post Graduation")
+```
+
+    ## Warning in FUN(X[[i]], ...): NAs introduced by coercion
+
+    ## Warning in FUN(X[[i]], ...): NAs introduced by coercion
+
+    ## Warning: Removed 229 rows containing missing values (geom_point).
+
+![](Higher-Education-Value_files/figure-gfm/unnamed-chunk-3-1.png)<!-- -->
+
+Two principle takeaways from this: first, we got a warning that about
+\~200 schools are missing income values, so we need to remove those from
+the dataset. Second, for universities with the highest income post
+graduation, the averages can be quite a bit higher than the medians.
+Based on this, I think it’s better to go with median income as our
+dependent variable. But we’ll try it with both for the first model.
+
 Now let’s think about what we might use to build a basic model. Let’s
 start with a simple linear model with just a couple of features.
 Thinking about a students background and their academic credentials,
-let’s see how much variation in 10 year post-graduationg income can be
-attributed to houshold income, first generation status, and average SAT
+let’s see how much variation in 10 year post-graduation income can be
+attributed to household income, first generation status, and average SAT
 scores.
 
 ``` r
@@ -201,7 +223,7 @@ like a promising starting point for further digging.
 
 For one final step, let’s run some basic model diagnostics. Base R has
 built-in functionality for this, but I much prefer the performance
-package:
+package. We’ll run it first for the model based on mean income.
 
 ``` r
 library(performance)
@@ -216,15 +238,62 @@ model_performance(fm_1)
     ## 21929.584 | 21954.286 | 0.581 |     0.580 | 9805.851 | 9824.891
 
 ``` r
-check_model(fm_1)
+check_model(fm_1,dot_size=1,line_size = .5,show_dots='false',
+            check=c("pp_check","linearity","qq","outliers"))
 ```
 
-![](Higher-Education-Value_files/figure-gfm/unnamed-chunk-4-1.png)<!-- -->
+![](Higher-Education-Value_files/figure-gfm/unnamed-chunk-5-1.png)<!-- -->
+
+Now, let’s see how the model does for the same features and median
+income as the dependent variable:
+
+``` r
+library(performance)
+
+model_performance(fm_2)
+```
+
+    ## # Indices of model performance
+    ## 
+    ## AIC       |       BIC |    R2 | R2 (adj.) |     RMSE |    Sigma
+    ## ---------------------------------------------------------------
+    ## 21660.102 | 21684.803 | 0.580 |     0.579 | 8606.711 | 8623.423
+
+``` r
+check_model(fm_2,dot_size=1,line_size = .5,show_dots='false',
+            check=c("pp_check","linearity","qq","outliers"))
+```
+
+![](Higher-Education-Value_files/figure-gfm/unnamed-chunk-6-1.png)<!-- -->
 
 As we would expect, the diagnostics indicate that we have a lot more to
-do. But it’s a good start. As a next step, lets add some additional
-variables to the model - focusing on characteristics of students that
-are independent of the university that they attend.
+do.
+
+It also doesn’t seem like there’s a ton of difference between the two
+dependent variables - so we’ll stick with my original intuition and use
+median income going forward.
+
+As a next step, lets add some additional variables to the model -
+focusing on characteristics of students that are independent of the
+university that they attend. This includes demographic information
+including race/ethnicity, family income, standardized test information,
+dependent status, and the demographic profile of students’ home zip
+codes.
+
+<b>An important note: I am making no claims here about ‘why’ any of the
+above demographic variables are likely to impact the income of college
+graduate 10 years post-graduation. I am merely attempting to gather all
+the information I can about the profile of students at each university
+in order to account for those differences when comparing universities to
+each other. </b>
+
+Additionally, we will include variables that indicate the percent of
+students choosing distinct types of majors at each university. We know
+that certain majors are likely to result in higher incomes independent
+of which university students attend, so we want to account for the fact
+that the ‘mix’ of majors at some universities is very different than
+others. We don’t want having more engineering majors to drive how much
+impact a college has on students’ income.
 
 ``` r
 # Follow the same steps as previously, but keep additional columns that we want to use for the model
@@ -280,7 +349,7 @@ second_model_scorecard <- filtered_scorecard %>%
         PCIP51,
         PCIP52,
         PCIP54,
-        UGDS_WHITE,
+        UGDS_WHITE, # Demographic characteristics of Undergraduate student pop
         UGDS_BLACK,
         UGDS_HISP,
         UGDS_ASIAN,
@@ -293,7 +362,7 @@ second_model_scorecard <- filtered_scorecard %>%
         AGEGE24,
         DEPENDENT,
 #         VETERAN,       # Wanted to include % of veterans but most colleges do not report this
-        PCT_WHITE,
+        PCT_WHITE, # Demographic characteristics of home zip codes of student pop
         PCT_BLACK,
         PCT_ASIAN,
         PCT_HISPANIC,
@@ -307,188 +376,9 @@ second_model_scorecard <- filtered_scorecard %>%
 #  filter(MN_EARN_WNE_P10 != 'NULL',MN_EARN_WNE_P10 != 'PrivacySuppressed') %>%
   filter(MD_EARN_WNE_P10 != 'NULL',MD_EARN_WNE_P10 != 'PrivacySuppressed') %>%
   mutate_at(vars(-("INSTNM")), as.numeric) 
+
+# summary(second_model_scorecard)
 ```
-
-    ## Warning in mask$eval_all_mutate(quo): NAs introduced by coercion
-
-    ## Warning in mask$eval_all_mutate(quo): NAs introduced by coercion
-
-    ## Warning in mask$eval_all_mutate(quo): NAs introduced by coercion
-
-    ## Warning in mask$eval_all_mutate(quo): NAs introduced by coercion
-
-    ## Warning in mask$eval_all_mutate(quo): NAs introduced by coercion
-
-    ## Warning in mask$eval_all_mutate(quo): NAs introduced by coercion
-
-    ## Warning in mask$eval_all_mutate(quo): NAs introduced by coercion
-
-    ## Warning in mask$eval_all_mutate(quo): NAs introduced by coercion
-
-    ## Warning in mask$eval_all_mutate(quo): NAs introduced by coercion
-
-    ## Warning in mask$eval_all_mutate(quo): NAs introduced by coercion
-
-    ## Warning in mask$eval_all_mutate(quo): NAs introduced by coercion
-
-    ## Warning in mask$eval_all_mutate(quo): NAs introduced by coercion
-
-    ## Warning in mask$eval_all_mutate(quo): NAs introduced by coercion
-
-    ## Warning in mask$eval_all_mutate(quo): NAs introduced by coercion
-
-    ## Warning in mask$eval_all_mutate(quo): NAs introduced by coercion
-
-    ## Warning in mask$eval_all_mutate(quo): NAs introduced by coercion
-
-``` r
-summary(second_model_scorecard)
-```
-
-    ##      UNITID          INSTNM             SAT_AVG        SATVRMID    
-    ##  Min.   :100654   Length:1043        Min.   : 842   Min.   :398.0  
-    ##  1st Qu.:153260   Class :character   1st Qu.:1052   1st Qu.:523.0  
-    ##  Median :186876   Mode  :character   Median :1115   Median :555.0  
-    ##  Mean   :185920                      Mean   :1140   Mean   :563.7  
-    ##  3rd Qu.:215970                      3rd Qu.:1205   3rd Qu.:600.0  
-    ##  Max.   :487524                      Max.   :1550   Max.   :755.0  
-    ##                                                     NA's   :42     
-    ##     SATMTMID        ACTCMMID         FAMINC         MD_FAMINC     
-    ##  Min.   :391.0   Min.   :14.00   Min.   : 18894   Min.   : 10702  
-    ##  1st Qu.:515.0   1st Qu.:21.00   1st Qu.: 51693   1st Qu.: 36419  
-    ##  Median :545.0   Median :23.00   Median : 64061   Median : 48556  
-    ##  Mean   :559.4   Mean   :23.64   Mean   : 68323   Mean   : 52626  
-    ##  3rd Qu.:590.0   3rd Qu.:26.00   3rd Qu.: 82949   3rd Qu.: 66052  
-    ##  Max.   :790.0   Max.   :35.00   Max.   :144617   Max.   :123136  
-    ##  NA's   :42      NA's   :14                                       
-    ##    FIRST_GEN           FEMALE       MD_EARN_WNE_P10      PCIP01        
-    ##  Min.   :0.08867   Min.   :0.1184   Min.   : 24209   Min.   :0.000000  
-    ##  1st Qu.:0.23337   1st Qu.:0.5300   1st Qu.: 43367   1st Qu.:0.000000  
-    ##  Median :0.31709   Median :0.5837   Median : 49599   Median :0.000000  
-    ##  Mean   :0.30850   Mean   :0.5802   Mean   : 52312   Mean   :0.008505  
-    ##  3rd Qu.:0.37566   3rd Qu.:0.6356   3rd Qu.: 57304   3rd Qu.:0.000000  
-    ##  Max.   :0.61534   Max.   :0.9796   Max.   :121576   Max.   :0.378400  
-    ##                    NA's   :18                                          
-    ##      PCIP03             PCIP04             PCIP05             PCIP09       
-    ##  Min.   :0.000000   Min.   :0.000000   Min.   :0.000000   Min.   :0.00000  
-    ##  1st Qu.:0.000000   1st Qu.:0.000000   1st Qu.:0.000000   1st Qu.:0.01055  
-    ##  Median :0.000000   Median :0.000000   Median :0.000000   Median :0.03330  
-    ##  Mean   :0.009902   Mean   :0.002843   Mean   :0.003589   Mean   :0.03802  
-    ##  3rd Qu.:0.011350   3rd Qu.:0.000000   3rd Qu.:0.002900   3rd Qu.:0.05655  
-    ##  Max.   :0.352600   Max.   :0.160800   Max.   :0.182400   Max.   :0.19540  
-    ##                                                                            
-    ##      PCIP10             PCIP11            PCIP12              PCIP13      
-    ##  Min.   :0.000000   Min.   :0.00000   Min.   :0.0000000   Min.   :0.0000  
-    ##  1st Qu.:0.000000   1st Qu.:0.00900   1st Qu.:0.0000000   1st Qu.:0.0095  
-    ##  Median :0.000000   Median :0.02600   Median :0.0000000   Median :0.0435  
-    ##  Mean   :0.001992   Mean   :0.03439   Mean   :0.0003961   Mean   :0.0554  
-    ##  3rd Qu.:0.000000   3rd Qu.:0.04380   3rd Qu.:0.0000000   3rd Qu.:0.0822  
-    ##  Max.   :0.228700   Max.   :0.57310   Max.   :0.0613000   Max.   :0.6796  
-    ##                                                                           
-    ##      PCIP14           PCIP15             PCIP16             PCIP19        
-    ##  Min.   :0.0000   Min.   :0.000000   Min.   :0.000000   Min.   :0.000000  
-    ##  1st Qu.:0.0000   1st Qu.:0.000000   1st Qu.:0.000000   1st Qu.:0.000000  
-    ##  Median :0.0000   Median :0.000000   Median :0.003800   Median :0.000000  
-    ##  Mean   :0.0461   Mean   :0.007837   Mean   :0.007795   Mean   :0.006971  
-    ##  3rd Qu.:0.0524   3rd Qu.:0.000000   3rd Qu.:0.010400   3rd Qu.:0.000000  
-    ##  Max.   :0.8916   Max.   :0.236000   Max.   :0.129900   Max.   :0.136100  
-    ##                                                                           
-    ##      PCIP22            PCIP23            PCIP24            PCIP25         
-    ##  Min.   :0.00000   Min.   :0.00000   Min.   :0.00000   Min.   :0.000e+00  
-    ##  1st Qu.:0.00000   1st Qu.:0.00950   1st Qu.:0.00000   1st Qu.:0.000e+00  
-    ##  Median :0.00000   Median :0.01700   Median :0.00810   Median :0.000e+00  
-    ##  Mean   :0.00193   Mean   :0.02102   Mean   :0.03334   Mean   :1.966e-05  
-    ##  3rd Qu.:0.00000   3rd Qu.:0.02680   3rd Qu.:0.04245   3rd Qu.:0.000e+00  
-    ##  Max.   :0.12150   Max.   :0.19140   Max.   :1.00000   Max.   :1.280e-02  
-    ##                                                                           
-    ##      PCIP26            PCIP27            PCIP29              PCIP30       
-    ##  Min.   :0.00000   Min.   :0.00000   Min.   :0.0000000   Min.   :0.00000  
-    ##  1st Qu.:0.03695   1st Qu.:0.00380   1st Qu.:0.0000000   1st Qu.:0.00000  
-    ##  Median :0.05740   Median :0.00860   Median :0.0000000   Median :0.00810  
-    ##  Mean   :0.06912   Mean   :0.01280   Mean   :0.0002561   Mean   :0.02291  
-    ##  3rd Qu.:0.09525   3rd Qu.:0.01705   3rd Qu.:0.0000000   3rd Qu.:0.02750  
-    ##  Max.   :0.42050   Max.   :0.13250   Max.   :0.0413000   Max.   :0.44810  
-    ##                                                                           
-    ##      PCIP31            PCIP38             PCIP39            PCIP40       
-    ##  Min.   :0.00000   Min.   :0.000000   Min.   :0.00000   Min.   :0.00000  
-    ##  1st Qu.:0.00000   1st Qu.:0.000000   1st Qu.:0.00000   1st Qu.:0.00320  
-    ##  Median :0.02480   Median :0.002500   Median :0.00000   Median :0.01130  
-    ##  Mean   :0.03485   Mean   :0.005911   Mean   :0.01372   Mean   :0.01575  
-    ##  3rd Qu.:0.05575   3rd Qu.:0.006700   3rd Qu.:0.00000   3rd Qu.:0.02120  
-    ##  Max.   :0.29700   Max.   :0.481000   Max.   :1.00000   Max.   :0.15180  
-    ##                                                                          
-    ##      PCIP41              PCIP42            PCIP43           PCIP44       
-    ##  Min.   :0.0000000   Min.   :0.00000   Min.   :0.0000   Min.   :0.00000  
-    ##  1st Qu.:0.0000000   1st Qu.:0.03710   1st Qu.:0.0000   1st Qu.:0.00000  
-    ##  Median :0.0000000   Median :0.05830   Median :0.0059   Median :0.00440  
-    ##  Mean   :0.0001429   Mean   :0.06367   Mean   :0.0290   Mean   :0.01876  
-    ##  3rd Qu.:0.0000000   3rd Qu.:0.08380   3rd Qu.:0.0428   3rd Qu.:0.02790  
-    ##  Max.   :0.0508000   Max.   :0.33330   Max.   :0.5436   Max.   :0.41980  
-    ##                                                                          
-    ##      PCIP45            PCIP46              PCIP47              PCIP48         
-    ##  Min.   :0.00000   Min.   :0.000e+00   Min.   :0.0000000   Min.   :0.0000000  
-    ##  1st Qu.:0.01385   1st Qu.:0.000e+00   1st Qu.:0.0000000   1st Qu.:0.0000000  
-    ##  Median :0.04260   Median :0.000e+00   Median :0.0000000   Median :0.0000000  
-    ##  Mean   :0.06138   Mean   :8.092e-05   Mean   :0.0002154   Mean   :0.0001122  
-    ##  3rd Qu.:0.08400   3rd Qu.:0.000e+00   3rd Qu.:0.0000000   3rd Qu.:0.0000000  
-    ##  Max.   :0.40820   Max.   :2.010e-02   Max.   :0.0421000   Max.   :0.0438000  
-    ##                                                                               
-    ##      PCIP49             PCIP50            PCIP51           PCIP52      
-    ##  Min.   :0.000000   Min.   :0.00000   Min.   :0.0000   Min.   :0.0000  
-    ##  1st Qu.:0.000000   1st Qu.:0.01565   1st Qu.:0.0179   1st Qu.:0.1235  
-    ##  Median :0.000000   Median :0.03270   Median :0.0853   Median :0.1731  
-    ##  Mean   :0.002893   Mean   :0.04726   Mean   :0.1289   Mean   :0.1774  
-    ##  3rd Qu.:0.000000   3rd Qu.:0.05725   3rd Qu.:0.1787   3rd Qu.:0.2276  
-    ##  Max.   :0.410100   Max.   :0.98150   Max.   :1.0000   Max.   :1.0000  
-    ##                                                                        
-    ##      PCIP54          UGDS_WHITE       UGDS_BLACK       UGDS_HISP     
-    ##  Min.   :0.00000   Min.   :0.0000   Min.   :0.0000   Min.   :0.0000  
-    ##  1st Qu.:0.00520   1st Qu.:0.4389   1st Qu.:0.0449   1st Qu.:0.0526  
-    ##  Median :0.01090   Median :0.6044   Median :0.0769   Median :0.0857  
-    ##  Mean   :0.01381   Mean   :0.5602   Mean   :0.1353   Mean   :0.1277  
-    ##  3rd Qu.:0.01785   3rd Qu.:0.7318   3rd Qu.:0.1467   3rd Qu.:0.1488  
-    ##  Max.   :0.11430   Max.   :0.9315   Max.   :0.9846   Max.   :1.0000  
-    ##                                                                      
-    ##    UGDS_ASIAN        UGDS_AIAN          UGDS_NHPI          UGDS_2MOR      
-    ##  Min.   :0.00000   Min.   :0.000000   Min.   :0.000000   Min.   :0.00000  
-    ##  1st Qu.:0.01200   1st Qu.:0.001400   1st Qu.:0.000400   1st Qu.:0.02650  
-    ##  Median :0.02480   Median :0.002700   Median :0.001000   Median :0.03690  
-    ##  Mean   :0.05117   Mean   :0.006673   Mean   :0.002287   Mean   :0.04011  
-    ##  3rd Qu.:0.05620   3rd Qu.:0.005250   3rd Qu.:0.002100   3rd Qu.:0.04875  
-    ##  Max.   :0.37460   Max.   :0.603800   Max.   :0.187300   Max.   :0.36640  
-    ##                                                                           
-    ##     UGDS_NRA         UGDS_UNKN         AGE_ENTRY        AGEGE24      
-    ##  Min.   :0.00000   Min.   :0.00000   Min.   :19.26   Min.   :0.0000  
-    ##  1st Qu.:0.01120   1st Qu.:0.00995   1st Qu.:20.41   1st Qu.:0.0800  
-    ##  Median :0.02430   Median :0.02180   Median :21.61   Median :0.1700  
-    ##  Mean   :0.04052   Mean   :0.03597   Mean   :22.14   Mean   :0.1991  
-    ##  3rd Qu.:0.05115   3rd Qu.:0.04060   3rd Qu.:23.25   3rd Qu.:0.2800  
-    ##  Max.   :0.50660   Max.   :0.87420   Max.   :33.82   Max.   :0.7900  
-    ##                                                      NA's   :8       
-    ##    DEPENDENT        PCT_WHITE       PCT_BLACK        PCT_ASIAN     
-    ##  Min.   :0.2162   Min.   :24.24   Min.   : 0.490   Min.   : 0.200  
-    ##  1st Qu.:0.7123   1st Qu.:72.76   1st Qu.: 4.685   1st Qu.: 1.290  
-    ##  Median :0.8177   Median :81.54   Median : 7.880   Median : 1.990  
-    ##  Mean   :0.7888   Mean   :78.64   Mean   :11.847   Mean   : 3.041  
-    ##  3rd Qu.:0.9036   3rd Qu.:88.41   3rd Qu.:14.870   3rd Qu.: 3.460  
-    ##  Max.   :0.9891   Max.   :97.62   Max.   :66.240   Max.   :39.040  
-    ##  NA's   :36       NA's   :8       NA's   :8        NA's   :8       
-    ##   PCT_HISPANIC        PCT_BA      PCT_GRAD_PROF     PCT_BORN_US   
-    ##  Min.   : 0.710   Min.   : 4.79   Min.   : 4.170   Min.   :52.11  
-    ##  1st Qu.: 2.980   1st Qu.:13.85   1st Qu.: 7.050   1st Qu.:87.92  
-    ##  Median : 5.040   Median :15.93   Median : 8.570   Median :92.77  
-    ##  Mean   : 8.561   Mean   :16.26   Mean   : 9.154   Mean   :90.54  
-    ##  3rd Qu.: 9.515   3rd Qu.:18.72   3rd Qu.:10.645   3rd Qu.:95.72  
-    ##  Max.   :98.720   Max.   :27.03   Max.   :18.500   Max.   :99.32  
-    ##  NA's   :8        NA's   :8       NA's   :8        NA's   :8      
-    ##  MEDIAN_HH_INC    POVERTY_RATE      UNEMP_RATE   
-    ##  Min.   :20501   Min.   : 3.110   Min.   :2.120  
-    ##  1st Qu.:56511   1st Qu.: 6.155   1st Qu.:2.950  
-    ##  Median :63561   Median : 7.420   Median :3.270  
-    ##  Mean   :63830   Mean   : 8.422   Mean   :3.418  
-    ##  3rd Qu.:71924   3rd Qu.: 9.480   3rd Qu.:3.670  
-    ##  Max.   :96738   Max.   :45.730   Max.   :7.920  
-    ##  NA's   :8       NA's   :8        NA's   :8
 
 Taking a look at the data in each column, we exclude a few variables -
 median SAT writing score and veteran status that most colleges don’t
@@ -522,7 +412,7 @@ train <- second_model_scorecard %>% dplyr::sample_frac(0.75)
 test  <- dplyr::anti_join(second_model_scorecard, train, by = 'id')
 
 #define model with all predictors
-all <- lm(MD_EARN_WNE_P10 ~ . - UNITID - INSTNM, data=train)
+all <- lm(MD_EARN_WNE_P10 ~ . - UNITID - INSTNM - id, data=train)
 ```
 
 Now, let’s check the performance of this second model:
@@ -537,17 +427,19 @@ model_performance(all)
     ## 
     ## AIC       |       BIC |    R2 | R2 (adj.) |     RMSE |    Sigma
     ## ---------------------------------------------------------------
-    ## 14085.003 | 14404.176 | 0.871 |     0.857 | 4708.506 | 4956.964
+    ## 14125.783 | 14440.396 | 0.863 |     0.848 | 4853.344 | 5105.439
 
 ``` r
-check_model(all)
+check_model(all,dot_size=1,line_size = .5,show_dots='false',
+            check=c("pp_check","linearity","qq","outliers"))
 ```
 
-![](Higher-Education-Value_files/figure-gfm/unnamed-chunk-8-1.png)<!-- -->
+![](Higher-Education-Value_files/figure-gfm/unnamed-chunk-10-1.png)<!-- -->
 
-This is an incredible result, with almost all the variation in 10 year
-post graduation income predicted by factors not associated with the
-college.
+With these additional variables included, the predictive power of our
+model goes from .58 to .84. However, it’s likely we have included too
+many features, so we’ll try a backwards stepwise regression to focus on
+the most important ones.
 
 ``` r
 #perform backward stepwise regression
@@ -561,13 +453,14 @@ model_performance(backward)
     ## 
     ## AIC       |       BIC |    R2 | R2 (adj.) |     RMSE |    Sigma
     ## ---------------------------------------------------------------
-    ## 14037.141 | 14205.847 | 0.867 |     0.860 | 4769.381 | 4895.837
+    ## 14075.924 | 14235.510 | 0.859 |     0.852 | 4916.101 | 5038.932
 
 ``` r
-check_model(backward)
+check_model(backward,dot_size=1,line_size = .5,show_dots='false',
+            check=c("pp_check","linearity","qq","outliers"))
 ```
 
-![](Higher-Education-Value_files/figure-gfm/unnamed-chunk-9-1.png)<!-- -->
+![](Higher-Education-Value_files/figure-gfm/unnamed-chunk-11-1.png)<!-- -->
 
 Now, the idea is that whatever remains should tell us which colleges
 benefit students the most independent of other factors. The colleges
@@ -586,50 +479,42 @@ abline(a = 0,                                        # Add straight line
        lwd = 2)
 ```
 
-![](Higher-Education-Value_files/figure-gfm/unnamed-chunk-10-1.png)<!-- -->
+![](Higher-Education-Value_files/figure-gfm/unnamed-chunk-12-1.png)<!-- -->
 
 ``` r
 # New DataSet Showing Predicted And Actual
 modeled_results <- cbind(train,predict(backward)) %>%
   rename("modeled_salary" = "predict(backward)") %>%
   mutate(value_add =MD_EARN_WNE_P10 - modeled_salary) %>%
-  select(UNITID,INSTNM,MD_EARN_WNE_P10,modeled_salary,value_add)
+  select(INSTNM,MD_EARN_WNE_P10,modeled_salary,value_add)
 
 # Top Ten Colleges with highest 'Value Add'
-modeled_results %>% filter(rank(desc(value_add))<=10)
+modeled_results %>%
+  mutate(INSTNM = str_trunc(INSTNM,30)) %>%
+  filter(rank(desc(value_add))<=10) %>%
+  arrange(desc(value_add))
 ```
 
-    ##     UNITID                                                  INSTNM
-    ## 21  217165                                       Bryant University
-    ## 108 190150             Columbia University in the City of New York
-    ## 119 131496                                   Georgetown University
-    ## 167 164739                                      Bentley University
-    ## 213 443410                         DigiPen Institute of Technology
-    ## 344 179265 University of Health Sciences and Pharmacy in St. Louis
-    ## 518 166683                   Massachusetts Institute of Technology
-    ## 520 209065                  Linfield University-McMinnville Campus
-    ## 562 188526          Albany College of Pharmacy and Health Sciences
-    ## 650 215132                              University of the Sciences
-    ##     MD_EARN_WNE_P10 modeled_salary value_add
-    ## 21            91105       76104.98  15000.02
-    ## 108           89871       79391.73  10479.27
-    ## 119           96375       79532.86  16842.14
-    ## 167          107974       84570.76  23403.24
-    ## 213           89916       76063.01  13852.99
-    ## 344          121576       75737.04  45838.96
-    ## 518          111222       94645.12  16576.88
-    ## 520           66898       55487.20  11410.80
-    ## 562          119112       82849.85  36262.15
-    ## 650           98779       79259.86  19519.14
+    ##                             INSTNM MD_EARN_WNE_P10 modeled_salary value_add
+    ## 344 University of Health Scienc...          121576       73273.98  48302.02
+    ## 562 Albany College of Pharmacy ...          119112       81253.97  37858.03
+    ## 167             Bentley University          107974       84862.64  23111.36
+    ## 650     University of the Sciences           98779       79777.98  19001.02
+    ## 119          Georgetown University           96375       79798.13  16576.87
+    ## 21               Bryant University           91105       75722.83  15382.17
+    ## 213 DigiPen Institute of Techno...           89916       75248.11  14667.89
+    ## 518 Massachusetts Institute of ...          111222       97191.89  14030.11
+    ## 654 Massachusetts Maritime Academy           91668       80034.49  11633.51
+    ## 520 Linfield University-McMinnv...           66898       55313.75  11584.25
 
 Some of the top 10 schools with the biggest ‘value add’ make sense -
-Columbia, Georgetown, MIT. Others are specialty schools that focus on a
-specific type of degree program (pharmacy). It may be better to remove
-these schools from the analysis as outliers as they don’t represent
-‘normal’ colleges.
+Georgetown, MIT. Others are specialty schools that focus on a specific
+type of degree program (pharmacy). It may be better to remove these
+schools from the analysis as outliers as they don’t represent ‘normal’
+colleges.
 
-It’s also possible that a different type of model might do a better job
-in these types of cases. Gradient boosted decision trees tend to
+It’s also possible that a non-parametric model might do a better job in
+these types of cases. Gradient boosted decision trees tend to
 consistently win modelling competitions (and we use them often in my
 team in my actual job) so let’s see if we get a different result by
 using the XGBoost model on the data.
@@ -668,11 +553,11 @@ train = second_model_scorecard[parts, ]
 test = second_model_scorecard[-parts, ]
 
 #define predictor and response variables in training set
-train_x = data.matrix(train[, c(-8,-1,-2)])
+train_x = data.matrix(train[, c(-11,-1,-2,-72)])
 train_y = train$MD_EARN_WNE_P10
 
 #define predictor and response variables in testing set
-test_x = data.matrix(test[, c(-8,-1,-2)])
+test_x = data.matrix(test[, c(-11,-1,-2,-72)])
 test_y = test$MD_EARN_WNE_P10
 
 #define final training and testing sets
@@ -690,76 +575,76 @@ watchlist = list(train=xgb_train, test=xgb_test)
 model = xgb.train(data = xgb_train, max.depth = 3, watchlist=watchlist, nrounds = 70)
 ```
 
-    ## [1]  train-rmse:37742.400000 test-rmse:38488.232390 
-    ## [2]  train-rmse:26601.949492 test-rmse:27313.396098 
-    ## [3]  train-rmse:18771.680068 test-rmse:19272.760168 
-    ## [4]  train-rmse:13266.096607 test-rmse:13715.933402 
-    ## [5]  train-rmse:9393.066226  test-rmse:9776.615876 
-    ## [6]  train-rmse:6673.280683  test-rmse:7028.752647 
-    ## [7]  train-rmse:4763.232249  test-rmse:5080.068509 
-    ## [8]  train-rmse:3414.364497  test-rmse:3679.507531 
-    ## [9]  train-rmse:2469.606345  test-rmse:2746.769523 
-    ## [10] train-rmse:1811.030482  test-rmse:2067.244659 
-    ## [11] train-rmse:1358.079729  test-rmse:1575.960182 
-    ## [12] train-rmse:1048.942951  test-rmse:1262.908612 
-    ## [13] train-rmse:840.422986   test-rmse:1057.873284 
-    ## [14] train-rmse:704.430816   test-rmse:934.552454 
-    ## [15] train-rmse:617.663156   test-rmse:844.263679 
-    ## [16] train-rmse:561.277386   test-rmse:759.627930 
-    ## [17] train-rmse:525.041721   test-rmse:729.292735 
-    ## [18] train-rmse:498.716003   test-rmse:702.959355 
-    ## [19] train-rmse:481.630534   test-rmse:684.890147 
-    ## [20] train-rmse:467.719391   test-rmse:668.836504 
-    ## [21] train-rmse:457.749685   test-rmse:675.507906 
-    ## [22] train-rmse:444.065959   test-rmse:668.192770 
-    ## [23] train-rmse:436.466729   test-rmse:667.696324 
-    ## [24] train-rmse:431.681195   test-rmse:668.415818 
-    ## [25] train-rmse:424.874922   test-rmse:671.145517 
-    ## [26] train-rmse:411.592367   test-rmse:684.752178 
-    ## [27] train-rmse:401.606862   test-rmse:684.979889 
-    ## [28] train-rmse:392.322505   test-rmse:687.086911 
-    ## [29] train-rmse:384.800088   test-rmse:689.257717 
-    ## [30] train-rmse:379.951355   test-rmse:690.594629 
-    ## [31] train-rmse:372.771443   test-rmse:692.050248 
-    ## [32] train-rmse:367.332235   test-rmse:695.545535 
-    ## [33] train-rmse:363.689872   test-rmse:697.876703 
-    ## [34] train-rmse:360.579552   test-rmse:699.880507 
-    ## [35] train-rmse:353.660550   test-rmse:701.571194 
-    ## [36] train-rmse:347.297511   test-rmse:705.909373 
-    ## [37] train-rmse:344.590787   test-rmse:705.157633 
-    ## [38] train-rmse:339.516939   test-rmse:705.360887 
-    ## [39] train-rmse:336.217060   test-rmse:705.471708 
-    ## [40] train-rmse:333.212616   test-rmse:704.967260 
-    ## [41] train-rmse:327.308151   test-rmse:704.571512 
-    ## [42] train-rmse:323.533597   test-rmse:708.079861 
-    ## [43] train-rmse:314.044042   test-rmse:706.434732 
-    ## [44] train-rmse:303.966236   test-rmse:688.347723 
-    ## [45] train-rmse:300.282138   test-rmse:686.268185 
-    ## [46] train-rmse:296.150503   test-rmse:686.883380 
-    ## [47] train-rmse:291.860518   test-rmse:687.270439 
-    ## [48] train-rmse:287.490078   test-rmse:689.461876 
-    ## [49] train-rmse:282.738137   test-rmse:690.937992 
-    ## [50] train-rmse:280.589314   test-rmse:691.412414 
-    ## [51] train-rmse:278.462650   test-rmse:691.269319 
-    ## [52] train-rmse:275.629243   test-rmse:692.190519 
-    ## [53] train-rmse:272.298603   test-rmse:694.479869 
-    ## [54] train-rmse:269.577596   test-rmse:695.134866 
-    ## [55] train-rmse:268.384930   test-rmse:695.830757 
-    ## [56] train-rmse:266.314939   test-rmse:697.184480 
-    ## [57] train-rmse:263.480484   test-rmse:698.893741 
-    ## [58] train-rmse:259.130791   test-rmse:697.408516 
-    ## [59] train-rmse:257.953061   test-rmse:697.540645 
-    ## [60] train-rmse:252.306764   test-rmse:699.575886 
-    ## [61] train-rmse:248.354214   test-rmse:700.673602 
-    ## [62] train-rmse:244.465519   test-rmse:700.050876 
-    ## [63] train-rmse:239.903074   test-rmse:699.103088 
-    ## [64] train-rmse:235.891659   test-rmse:698.789636 
-    ## [65] train-rmse:231.973822   test-rmse:700.595970 
-    ## [66] train-rmse:227.442121   test-rmse:698.750490 
-    ## [67] train-rmse:223.682243   test-rmse:698.619429 
-    ## [68] train-rmse:220.364713   test-rmse:698.424099 
-    ## [69] train-rmse:217.037467   test-rmse:699.058261 
-    ## [70] train-rmse:216.095716   test-rmse:699.170007
+    ## [1]  train-rmse:38087.437414 test-rmse:39119.392396 
+    ## [2]  train-rmse:27296.368709 test-rmse:28395.801605 
+    ## [3]  train-rmse:19820.291552 test-rmse:21129.418330 
+    ## [4]  train-rmse:14604.193570 test-rmse:15998.302870 
+    ## [5]  train-rmse:11068.525746 test-rmse:12515.836608 
+    ## [6]  train-rmse:8640.867679  test-rmse:10059.154610 
+    ## [7]  train-rmse:7029.967582  test-rmse:8509.931106 
+    ## [8]  train-rmse:5963.949531  test-rmse:7484.351214 
+    ## [9]  train-rmse:5237.075413  test-rmse:6890.912635 
+    ## [10] train-rmse:4796.151351  test-rmse:6358.558108 
+    ## [11] train-rmse:4486.832377  test-rmse:6099.486954 
+    ## [12] train-rmse:4222.502927  test-rmse:5970.258073 
+    ## [13] train-rmse:4036.638253  test-rmse:5835.890871 
+    ## [14] train-rmse:3878.132803  test-rmse:5771.116948 
+    ## [15] train-rmse:3740.826024  test-rmse:5660.245552 
+    ## [16] train-rmse:3632.717208  test-rmse:5595.533261 
+    ## [17] train-rmse:3564.105648  test-rmse:5532.648524 
+    ## [18] train-rmse:3465.840336  test-rmse:5488.366613 
+    ## [19] train-rmse:3377.357746  test-rmse:5429.134364 
+    ## [20] train-rmse:3305.877654  test-rmse:5416.297756 
+    ## [21] train-rmse:3248.359029  test-rmse:5402.523568 
+    ## [22] train-rmse:3208.023457  test-rmse:5389.388800 
+    ## [23] train-rmse:3168.602428  test-rmse:5387.281997 
+    ## [24] train-rmse:3129.195385  test-rmse:5388.351013 
+    ## [25] train-rmse:3067.915130  test-rmse:5399.627794 
+    ## [26] train-rmse:3008.460500  test-rmse:5344.611503 
+    ## [27] train-rmse:2956.966975  test-rmse:5333.926939 
+    ## [28] train-rmse:2881.468858  test-rmse:5342.795642 
+    ## [29] train-rmse:2836.524168  test-rmse:5336.276618 
+    ## [30] train-rmse:2799.486265  test-rmse:5350.173886 
+    ## [31] train-rmse:2771.753403  test-rmse:5353.562680 
+    ## [32] train-rmse:2745.848769  test-rmse:5348.435150 
+    ## [33] train-rmse:2711.085284  test-rmse:5337.986200 
+    ## [34] train-rmse:2674.860728  test-rmse:5329.318477 
+    ## [35] train-rmse:2657.172290  test-rmse:5328.617240 
+    ## [36] train-rmse:2632.371199  test-rmse:5312.562336 
+    ## [37] train-rmse:2599.863377  test-rmse:5319.586655 
+    ## [38] train-rmse:2582.965430  test-rmse:5319.224494 
+    ## [39] train-rmse:2560.647818  test-rmse:5321.708037 
+    ## [40] train-rmse:2530.159825  test-rmse:5316.297962 
+    ## [41] train-rmse:2486.602275  test-rmse:5275.074262 
+    ## [42] train-rmse:2459.171488  test-rmse:5251.667597 
+    ## [43] train-rmse:2429.897347  test-rmse:5255.810064 
+    ## [44] train-rmse:2407.379025  test-rmse:5252.753580 
+    ## [45] train-rmse:2369.522843  test-rmse:5249.251093 
+    ## [46] train-rmse:2353.984132  test-rmse:5246.887285 
+    ## [47] train-rmse:2338.844080  test-rmse:5241.440384 
+    ## [48] train-rmse:2312.659149  test-rmse:5247.638459 
+    ## [49] train-rmse:2290.906215  test-rmse:5251.977739 
+    ## [50] train-rmse:2261.377646  test-rmse:5254.416711 
+    ## [51] train-rmse:2242.465247  test-rmse:5257.437835 
+    ## [52] train-rmse:2222.187239  test-rmse:5250.791363 
+    ## [53] train-rmse:2187.162617  test-rmse:5246.259055 
+    ## [54] train-rmse:2153.192490  test-rmse:5242.451370 
+    ## [55] train-rmse:2140.965629  test-rmse:5235.082027 
+    ## [56] train-rmse:2128.380994  test-rmse:5173.619506 
+    ## [57] train-rmse:2094.747467  test-rmse:5183.281186 
+    ## [58] train-rmse:2076.160942  test-rmse:5186.790325 
+    ## [59] train-rmse:2061.059081  test-rmse:5190.070160 
+    ## [60] train-rmse:2045.056554  test-rmse:5180.554237 
+    ## [61] train-rmse:2007.256843  test-rmse:5202.721879 
+    ## [62] train-rmse:1973.367661  test-rmse:5188.729306 
+    ## [63] train-rmse:1944.823004  test-rmse:5189.926307 
+    ## [64] train-rmse:1920.668076  test-rmse:5160.145005 
+    ## [65] train-rmse:1910.632381  test-rmse:5157.412108 
+    ## [66] train-rmse:1896.857793  test-rmse:5148.493814 
+    ## [67] train-rmse:1882.992897  test-rmse:5147.609960 
+    ## [68] train-rmse:1870.281793  test-rmse:5155.009014 
+    ## [69] train-rmse:1856.852680  test-rmse:5144.774355 
+    ## [70] train-rmse:1821.521655  test-rmse:5128.802564
 
 ``` r
 #define final model
@@ -772,22 +657,24 @@ pred_train = predict(final,xgb_train)
 mean((test_y - pred_y)^2) #mse
 ```
 
-    ## [1] 445818.4
+    ## [1] 29022807
 
 ``` r
-caret::MAE(test_y, pred_y) #mae
+caret::MAE(train_y, pred_train) #mae
 ```
 
-    ## [1] 433.7873
+    ## [1] 2407.664
 
 ``` r
-caret::RMSE(test_y, pred_y) #rmse
+caret::RMSE(train_y, pred_train) #rmse
 ```
 
-    ## [1] 667.6963
+    ## [1] 3168.602
 
-Now lets see which schools get the biggest differences between predicted
-and actual salaries
+This result indicates a root mean squared error of about 3168 dollars on
+the training data - much better than the linear model which had an RMSE
+of about 4700 dollars. Now lets see which schools get the biggest
+differences between predicted and actual salaries.
 
 ``` r
 scored_test <- test
@@ -814,18 +701,36 @@ total_scored %>% select(UNITID,INSTNM,value_add) %>% filter(rank(desc(value_add)
 ```
 
     ## # A tibble: 10 × 3
-    ##    UNITID INSTNM                                                  value_add
-    ##     <dbl> <chr>                                                       <dbl>
-    ##  1 166683 Massachusetts Institute of Technology                       5012.
-    ##  2 120883 University of the Pacific                                   2277.
-    ##  3 179265 University of Health Sciences and Pharmacy in St. Louis     2098.
-    ##  4 110680 University of California-San Diego                          1968.
-    ##  5 213543 Lehigh University                                           1663.
-    ##  6 139755 Georgia Institute of Technology-Main Campus                 1563.
-    ##  7 191241 Fordham University                                          1426.
-    ##  8 215770 Saint Joseph's University                                   1309.
-    ##  9 122409 San Diego State University                                  1257.
-    ## 10 179043 Rockhurst University                                        1152.
+    ##    UNITID INSTNM                                         value_add
+    ##     <dbl> <chr>                                              <dbl>
+    ##  1 166683 Massachusetts Institute of Technology             21247.
+    ##  2 198419 Duke University                                   16215.
+    ##  3 188526 Albany College of Pharmacy and Health Sciences    15901.
+    ##  4 217165 Bryant University                                 14884.
+    ##  5 130794 Yale University                                   14549.
+    ##  6 204635 Ohio Northern University                          14295.
+    ##  7 120883 University of the Pacific                         13477.
+    ##  8 243744 Stanford University                               12851 
+    ##  9 166656 MCPHS University                                  11945.
+    ## 10 215062 University of Pennsylvania                        11911.
+
+``` r
+total_scored %>% select(UNITID,INSTNM,value_add) %>% filter(rank(value_add)<=10) %>% arrange(value_add)
+```
+
+    ## # A tibble: 10 × 3
+    ##    UNITID INSTNM                            value_add
+    ##     <dbl> <chr>                                 <dbl>
+    ##  1 150774 Holy Cross College                  -16138.
+    ##  2 120865 Pacific Union College               -14233.
+    ##  3 219295 Presentation College                -11777.
+    ##  4 130314 University of Saint Joseph          -10255.
+    ##  5 126614 University of Colorado Boulder       -9970.
+    ##  6 239017 Lawrence University                  -9825.
+    ##  7 228787 The University of Texas at Dallas    -9562.
+    ##  8 175421 Belhaven University                  -9192.
+    ##  9 217013 Wilson College                       -9049.
+    ## 10 169080 Calvin University                    -8508.
 
 ``` r
 # Plot actual versus predicted
@@ -839,8 +744,14 @@ abline(a = 0,                                        # Add straight line
        lwd = 2)
 ```
 
-![](Higher-Education-Value_files/figure-gfm/unnamed-chunk-14-1.png)<!-- -->
+![](Higher-Education-Value_files/figure-gfm/unnamed-chunk-16-1.png)<!-- -->
 
 The final result makes sense - attending MIT causes the most significant
-value add of any college - but I’m surprised that the model estimates
-its only worth about \$5k in annual income 10 years post-graduation.
+value add of any college - about \$21k in annual income 10 years
+post-graduation. The list of schools which generate the highest negative
+value add doesn’t seem to have any clear pattern.
+
+<b>Note: This remains a work in progress. A few additional steps I am
+planning to add are some amount of cross-validation on the training data
+and continued review of the available features to see if there any other
+ones I may have left out.</b>
