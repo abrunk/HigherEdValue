@@ -276,7 +276,7 @@ check_model(all,dot_size=1,line_size = .5,show_dots='false',
 
 ```
 
-With these additional variables included, the predictive power of our model goes from .58 to .84. However, it's likely we have included too many features, so we'll try a backwards stepwise regression to focus on the most important ones.
+With these additional variables included, the predictive power of our model goes from .58 to .86. However, it's likely we have included too many features, so we'll try a backwards stepwise regression to focus on the most important ones.
 
 ```{r, warning=FALSE}
 #perform backward stepwise regression
@@ -353,6 +353,8 @@ watchlist = list(train=xgb_train, test=xgb_test)
 #fit XGBoost model and display training and testing data at each round
 model = xgb.train(data = xgb_train, max.depth = 3, watchlist=watchlist, nrounds = 70)
 ```
+
+We will go with model 23, since the rounds beyond that seem to overfit the training data.
 
 ```{r, warning=FALSE}
 

@@ -437,7 +437,7 @@ check_model(all,dot_size=1,line_size = .5,show_dots='false',
 ![](Higher-Education-Value_files/figure-gfm/unnamed-chunk-10-1.png)<!-- -->
 
 With these additional variables included, the predictive power of our
-model goes from .58 to .84. However, it’s likely we have included too
+model goes from .58 to .86. However, it’s likely we have included too
 many features, so we’ll try a backwards stepwise regression to focus on
 the most important ones.
 
@@ -645,6 +645,9 @@ model = xgb.train(data = xgb_train, max.depth = 3, watchlist=watchlist, nrounds 
     ## [68] train-rmse:1870.281793  test-rmse:5155.009014 
     ## [69] train-rmse:1856.852680  test-rmse:5144.774355 
     ## [70] train-rmse:1821.521655  test-rmse:5128.802564
+
+We will go with model 23, since the rounds beyond that seem to overfit
+the training data.
 
 ``` r
 #define final model
