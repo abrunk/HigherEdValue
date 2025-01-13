@@ -1,12 +1,102 @@
-# Load required libraries
+# Load required packages
 library(tidyverse)
-library(performance)
-library(xgboost)
 library(caret)
-library(gridExtra)
-library(viridis)
+library(ranger)  # For random forest
+library(xgboost)  # For xgboost
+library(kernlab)  # For SVM
+library(nnet)     # For neural networks
 
-# Read in the data
+# Feature descriptions
+feature_descriptions <- list(
+  # Basic institutional characteristics
+  UNITID = "Unique identifier for institution",
+  INSTNM = "Institution name",
+  
+  # Academic preparation metrics
+  SAT_AVG = "Average SAT equivalent score (includes converted ACT scores)",
+  SATVRMID = "SAT Verbal/Critical Reading midpoint",
+  SATMTMID = "SAT Math midpoint",
+  ACTCMMID = "ACT Composite midpoint",
+  
+  # Family background
+  FAMINC = "Average family income",
+  MD_FAMINC = "Median family income",
+  FIRST_GEN = "Percentage of first-generation college students",
+  
+  # Student body characteristics
+  FEMALE = "Percentage of female students",
+  AGE_ENTRY = "Average age of entry",
+  AGEGE24 = "Percentage of students 24 or older",
+  DEPENDENT = "Percentage of dependent students",
+  
+  # Outcome variable
+  MD_EARN_WNE_P10 = "Median earnings of students 10 years after entry (working, not enrolled)",
+  
+  # Program mix (PCIP) variables
+  PCIP01 = "Percentage of degrees awarded in Agriculture",
+  PCIP03 = "Percentage of degrees awarded in Natural Resources",
+  PCIP04 = "Percentage of degrees awarded in Architecture",
+  PCIP05 = "Percentage of degrees awarded in Area Studies",
+  PCIP09 = "Percentage of degrees awarded in Communication",
+  PCIP10 = "Percentage of degrees awarded in Communications Technology",
+  PCIP11 = "Percentage of degrees awarded in Computer Science",
+  PCIP12 = "Percentage of degrees awarded in Personal/Culinary Services",
+  PCIP13 = "Percentage of degrees awarded in Education",
+  PCIP14 = "Percentage of degrees awarded in Engineering",
+  PCIP15 = "Percentage of degrees awarded in Engineering Technology",
+  PCIP16 = "Percentage of degrees awarded in Foreign Languages",
+  PCIP19 = "Percentage of degrees awarded in Family/Consumer Sciences",
+  PCIP22 = "Percentage of degrees awarded in Legal Professions",
+  PCIP23 = "Percentage of degrees awarded in English Language/Literature",
+  PCIP24 = "Percentage of degrees awarded in Liberal Arts/Sciences",
+  PCIP25 = "Percentage of degrees awarded in Library Science",
+  PCIP26 = "Percentage of degrees awarded in Biological Sciences",
+  PCIP27 = "Percentage of degrees awarded in Mathematics/Statistics",
+  PCIP29 = "Percentage of degrees awarded in Military Technologies",
+  PCIP30 = "Percentage of degrees awarded in Multi/Interdisciplinary Studies",
+  PCIP31 = "Percentage of degrees awarded in Parks/Recreation/Leisure",
+  PCIP38 = "Percentage of degrees awarded in Philosophy/Religious Studies",
+  PCIP39 = "Percentage of degrees awarded in Theology/Religious Vocations",
+  PCIP40 = "Percentage of degrees awarded in Physical Sciences",
+  PCIP41 = "Percentage of degrees awarded in Science Technologies",
+  PCIP42 = "Percentage of degrees awarded in Psychology",
+  PCIP43 = "Percentage of degrees awarded in Homeland Security/Law Enforcement",
+  PCIP44 = "Percentage of degrees awarded in Public Administration",
+  PCIP45 = "Percentage of degrees awarded in Social Sciences",
+  PCIP46 = "Percentage of degrees awarded in Construction Trades",
+  PCIP47 = "Percentage of degrees awarded in Mechanic/Repair Technologies",
+  PCIP48 = "Percentage of degrees awarded in Precision Production",
+  PCIP49 = "Percentage of degrees awarded in Transportation",
+  PCIP50 = "Percentage of degrees awarded in Visual/Performing Arts",
+  PCIP51 = "Percentage of degrees awarded in Health Professions",
+  PCIP52 = "Percentage of degrees awarded in Business/Management",
+  PCIP54 = "Percentage of degrees awarded in History",
+  
+  # Student body demographics
+  UGDS_WHITE = "Percentage of undergraduate students who are White",
+  UGDS_BLACK = "Percentage of undergraduate students who are Black",
+  UGDS_HISP = "Percentage of undergraduate students who are Hispanic",
+  UGDS_ASIAN = "Percentage of undergraduate students who are Asian",
+  UGDS_AIAN = "Percentage of undergraduate students who are American Indian/Alaska Native",
+  UGDS_NHPI = "Percentage of undergraduate students who are Native Hawaiian/Pacific Islander",
+  UGDS_2MOR = "Percentage of undergraduate students who are Two or More Races",
+  UGDS_NRA = "Percentage of undergraduate students who are Non-Resident Aliens",
+  UGDS_UNKN = "Percentage of undergraduate students whose race/ethnicity is Unknown",
+  
+  # Home zip code characteristics
+  PCT_WHITE = "Percentage of population in students' home zip codes who are White",
+  PCT_BLACK = "Percentage of population in students' home zip codes who are Black",
+  PCT_ASIAN = "Percentage of population in students' home zip codes who are Asian",
+  PCT_HISPANIC = "Percentage of population in students' home zip codes who are Hispanic",
+  PCT_BA = "Percentage of population in students' home zip codes with Bachelor's degree",
+  PCT_GRAD_PROF = "Percentage of population in students' home zip codes with Graduate/Professional degree",
+  PCT_BORN_US = "Percentage of population in students' home zip codes born in US",
+  MEDIAN_HH_INC = "Median household income in students' home zip codes",
+  POVERTY_RATE = "Poverty rate in students' home zip codes",
+  UNEMP_RATE = "Unemployment rate in students' home zip codes"
+)
+
+# Read and filter data
 CollegeScorecard <- read_csv("CollegeScorecard.csv")
 
 # First filter the data
@@ -15,14 +105,7 @@ filtered_scorecard <- CollegeScorecard %>%
          CCUGPROF != 0, # Remove unclassified
          CCUGPROF != -2) # Remove graduate-only
 
-# Define major groups
-stem_cols <- c("PCIP11", "PCIP14", "PCIP15", "PCIP26", "PCIP27", "PCIP40", "PCIP41")
-business_cols <- c("PCIP52")
-healthcare_cols <- c("PCIP51")
-liberal_arts_cols <- c("PCIP23", "PCIP24", "PCIP38", "PCIP39", "PCIP45", "PCIP54")
-professional_cols <- c("PCIP04", "PCIP22", "PCIP44")
-
-# Create the second model dataset with explicit type conversion and keeping all original features
+# Create second model scorecard with specific variable selection
 second_model_scorecard <- filtered_scorecard %>%
   select(UNITID,
          INSTNM,          # Institution Name
@@ -74,7 +157,7 @@ second_model_scorecard <- filtered_scorecard %>%
          PCIP51,          # Health
          PCIP52,          # Business
          PCIP54,          # History
-         # Student body demographics
+         # Student body demographics - specific selection to avoid old categories
          UGDS_WHITE,      # Percent White undergrads
          UGDS_BLACK,      # Percent Black undergrads
          UGDS_HISP,       # Percent Hispanic undergrads
@@ -99,113 +182,107 @@ second_model_scorecard <- filtered_scorecard %>%
          POVERTY_RATE,    # Poverty rate in home zip codes
          UNEMP_RATE      # Unemployment rate in home zip codes
   ) %>%
-  # Convert columns to numeric explicitly
+  # Convert columns to numeric
   mutate(across(-INSTNM, ~as.numeric(as.character(.)))) %>%
   # Handle missing values
-  filter(!is.na(SAT_AVG), 
-         !is.na(MD_FAMINC), 
-         FIRST_GEN != 'PrivacySuppressed',
-         !is.na(MD_EARN_WNE_P10)) %>%
-  # Add major group percentages as additional features (not replacements)
-  mutate(
-    STEM_PCT = rowSums(across(all_of(stem_cols)), na.rm = TRUE),
-    Business_PCT = rowSums(across(all_of(business_cols)), na.rm = TRUE),
-    Healthcare_PCT = rowSums(across(all_of(healthcare_cols)), na.rm = TRUE),
-    Liberal_Arts_PCT = rowSums(across(all_of(liberal_arts_cols)), na.rm = TRUE),
-    Professional_PCT = rowSums(across(all_of(professional_cols)), na.rm = TRUE)
-  )
-INSTNM,          # Institution Name
-SAT_AVG,         # Average SAT Score
-SATVRMID,        # SAT Midpoint Critical Reading
-SATMTMID,        # SAT Midpoint Math
-ACTCMMID,        # Cumulative ACT Midpoint
-FAMINC,          # Family Income
-MD_FAMINC,       # Median Family Income
-FIRST_GEN,       # Percent First Generation Students
-FEMALE,          # Percent Female
-MD_EARN_WNE_P10, # Median Income 10 Years After Grad
-# All program mix variables
-starts_with("PCIP"),
-# Student body demographics
-UGDS_WHITE,      # Percent White undergrads
-UGDS_BLACK,      # Percent Black undergrads
-UGDS_HISP,       # Percent Hispanic undergrads
-UGDS_ASIAN,      # Percent Asian undergrads
-UGDS_AIAN,       # Percent American Indian/Alaska Native undergrads
-UGDS_NHPI,       # Percent Native Hawaiian/Pacific Islander undergrads
-UGDS_2MOR,       # Percent Two or more races undergrads
-UGDS_NRA,        # Percent Non-resident alien undergrads
-UGDS_UNKN,       # Percent Race unknown undergrads
-AGE_ENTRY,       # Average age of entry
-AGEGE24,         # Percent of students age 24 or above
-DEPENDENT,       # Percent dependent students
-# Home zip code demographics
-PCT_WHITE,       # Percent White in home zip codes
-PCT_BLACK,       # Percent Black in home zip codes
-PCT_ASIAN,       # Percent Asian in home zip codes
-PCT_HISPANIC,    # Percent Hispanic in home zip codes
-PCT_BA,          # Percent with Bachelor's in home zip codes
-PCT_GRAD_PROF,   # Percent with graduate degree in home zip codes
-PCT_BORN_US,     # Percent born in US in home zip codes
-MEDIAN_HH_INC,   # Median household income in home zip codes
-POVERTY_RATE,    # Poverty rate in home zip codes
-UNEMP_RATE      # Unemployment rate in home zip codes
-) %>%
-  # Convert columns to numeric explicitly
-  mutate(across(-INSTNM, ~as.numeric(as.character(.)))) %>%
-  # Handle missing values
-  filter(!is.na(SAT_AVG), 
-         !is.na(MD_FAMINC), 
-         FIRST_GEN != 'PrivacySuppressed',
-         !is.na(MD_EARN_WNE_P10)) %>%
-  # Now calculate major group percentages safely
-  mutate(
-    # Use across() to ensure we're working with numeric data
-    STEM_PCT = rowSums(across(all_of(stem_cols)), na.rm = TRUE),
-    Business_PCT = rowSums(across(all_of(business_cols)), na.rm = TRUE),
-    Healthcare_PCT = rowSums(across(all_of(healthcare_cols)), na.rm = TRUE),
-    Liberal_Arts_PCT = rowSums(across(all_of(liberal_arts_cols)), na.rm = TRUE),
-    Professional_PCT = rowSums(across(all_of(professional_cols)), na.rm = TRUE)
-  )
+  drop_na()
 
-# Let's verify the data types
-print("Structure of major percentages:")
-str(select(second_model_scorecard, ends_with("_PCT")))
-
-# Now proceed with the model
-# Split into training and testing sets
+# Split into train/test sets
 set.seed(123)
 train_index <- createDataPartition(second_model_scorecard$MD_EARN_WNE_P10, p = 0.8, list = FALSE)
 train <- second_model_scorecard[train_index, ]
 test <- second_model_scorecard[-train_index, ]
 
-# Setup cross-validation
+# Set up cross-validation
 ctrl <- trainControl(
   method = "cv",
   number = 10,
   verboseIter = TRUE
 )
 
-# Define hyperparameter grid
-xgb_grid <- expand.grid(
-  nrounds = c(50, 100, 150),
-  max_depth = c(3, 5, 7),
-  eta = c(0.01, 0.1),
-  gamma = 0,
-  colsample_bytree = 1,
-  min_child_weight = 1,
-  subsample = 1
+# Train multiple models
+# 1. Linear Model
+lm_model <- train(
+  MD_EARN_WNE_P10 ~ .,
+  data = train %>% select(-c(INSTNM, UNITID)),
+  method = "lm",
+  trControl = ctrl
 )
 
-# Train model with cross-validation - keep all features except identifying columns
-model_features <- train %>%
-  select(-c(INSTNM, UNITID, MD_EARN_WNE_P10))  # Only remove identifier columns and target variable
-
-xgb_cv <- train(
-  x = as.matrix(model_features),
-  y = train$MD_EARN_WNE_P10,
-  method = "xgbTree",
+# 2. Random Forest with importance enabled
+rf_model <- train(
+  MD_EARN_WNE_P10 ~ .,
+  data = train %>% select(-c(INSTNM, UNITID)),
+  method = "ranger",
   trControl = ctrl,
-  tuneGrid = xgb_grid,
-  verbose = FALSE
+  importance = "impurity"
 )
+
+# 3. XGBoost
+xgb_model <- train(
+  MD_EARN_WNE_P10 ~ .,
+  data = train %>% select(-c(INSTNM, UNITID)),
+  method = "xgbTree",
+  trControl = ctrl
+)
+
+# 4. Neural Network
+nnet_model <- train(
+  MD_EARN_WNE_P10 ~ .,
+  data = train %>% select(-c(INSTNM, UNITID)),
+  method = "nnet",
+  trControl = ctrl,
+  trace = FALSE
+)
+
+# Compare models
+model_list <- list(
+  LinearModel = lm_model,
+  RandomForest = rf_model,
+  XGBoost = xgb_model,
+  NeuralNet = nnet_model
+)
+
+# Get comparison of model performance
+model_results <- resamples(model_list)
+summary(model_results)
+
+# Plot model comparison
+bwplot(model_results)
+
+# Get variable importance from random forest
+rf_importance <- varImp(rf_model)
+plot(rf_importance, top = 20, main = "Random Forest - Top 20 Important Variables")
+
+# Get variable importance from XGBoost
+xgb_importance <- varImp(xgb_model)
+plot(xgb_importance, top = 20, main = "XGBoost - Top 20 Important Variables")
+
+# Make predictions on both sets
+train$predicted_earnings <- predict(xgb_model, newdata = train %>% select(-c(INSTNM, UNITID)))
+train$value_add <- train$MD_EARN_WNE_P10 - train$predicted_earnings
+train$dataset <- "Training"
+
+test$predicted_earnings <- predict(rf_model, newdata = test %>% select(-c(INSTNM, UNITID)))
+test$value_add <- test$MD_EARN_WNE_P10 - test$predicted_earnings
+test$dataset <- "Test"
+
+# Combine datasets and show top 20 overall
+combined_results <- bind_rows(train, test) %>%
+  select(INSTNM, MD_EARN_WNE_P10, predicted_earnings, value_add, dataset) %>%
+  arrange(desc(value_add)) %>%
+  # head(20) %>%
+  mutate(
+    MD_EARN_WNE_P10 = round(MD_EARN_WNE_P10, 0),
+    predicted_earnings = round(predicted_earnings, 0),
+    value_add = round(value_add, 0)
+  ) %>%
+  rename(
+    "Institution" = INSTNM,
+    "Actual_Earnings" = MD_EARN_WNE_P10,
+    "Predicted_Earnings" = predicted_earnings,
+    "Value_Add" = value_add,
+    "Dataset" = dataset
+  )
+
+print(combined_results)
